@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   python: circleci/python@2.0.3
+  node: circleci/node@5.0.2
 
 jobs:
   example-job:
@@ -10,6 +11,9 @@ jobs:
 
     steps:
       - checkout
+
+      - node/install-packages:
+          pkg-manager: yarn
 
       - run:
           name: Start LocalStack
@@ -24,14 +28,28 @@ jobs:
             localstack wait -t 30                     # to become ready before timing out 
             echo "Startup complete"
 
+
+      - run:
+          name: Install deps
+          command: |
+            npm install -g aws-cdk-local aws-cdk
+            cdklocal --version
+            yarn
+            
       - run:
           name: Run some Tests against LocalStack
           command: |
-            awslocal s3 mb s3://test
-            echo "hello world" > /tmp/hello-world
-            awslocal s3 cp /tmp/hello-world s3://test/hello-world
-            awslocal s3 ls s3://test/
-            echo "Test Execution complete!"
+            cdklocal bootstrap aws://000000000000/us-east-1
+            cdklocal deploy --require-approval never --outputs-file cdk_outputs.json
+            awslocal lambda list-functions
+            awslocal sqs list-queues 
+            awslocal dynamodb list-tables
+            front_queue_url=$(awslocal sqs list-queues | jq -r .QueueUrls[0])
+            awslocal sqs send-message-batch --queue-url $front_queue_url --entries file://test/testMessagesFirst.json
+            awslocal sqs send-message-batch --queue-url $front_queue_url --entries file://test/testMessagesSecond.json
+            awslocal sqs send-message-batch --queue-url $front_queue_url --entries file://test/testMessagesThird.json
+            awslocal sqs send-message-batch --queue-url $front_queue_url --entries file://test/cornerCase1.json
+            awslocal sqs send-message-batch --queue-url $front_queue_url --entries file://test/cornerCase2.json
 
 workflows:
   version: 2
